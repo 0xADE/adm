@@ -1,0 +1,3 @@
+#!/bin/sh -l
+
+exec /usr/bin/emptty -d

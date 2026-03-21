@@ -1,0 +1,42 @@
+.TH ADM 1 "March 2026" "adm" "User Commands"
+.SH NAME
+adm \- display manager for TTY with Bubble Tea interface
+.SH SYNOPSIS
+.B adm
+.RB [ \-h | \-\-help ]
+.RB [ \-v | \-\-version ]
+.RB [ \-d | \-\-daemon ]
+.RB [ \-c
+.IR PATH | \-\-config
+.IR PATH ]
+.RB [ \-C | \-\-print-config ]
+.RB [ \-i | \-\-ignore-config ]
+.RB [ \-t
+.IR TTY | \-\-tty
+.IR TTY ]
+.RB [ \-u | \-\-default-user
+.IR USER ]
+.RB [ \-a | \-\-autologin
+.RI [ SESSION ]]
+.SH DESCRIPTION
+.B adm
+is a display manager inspired by
+.BR emptty (1).
+It presents login and session selection using a terminal UI built with
+.BR bubbletea (charm.sh).
+.SH FILES
+.TP
+.I /etc/adm/conf
+System configuration.
+.TP
+.I ~/.config/adm
+.TP
+.I ~/.adm
+Per-user session script or configuration.
+.TP
+.I /etc/pam.d/adm
+PAM stack (service name
+.BR adm ).
+.SH "SEE ALSO"
+.BR emptty (1),
+.BR agetty (8)

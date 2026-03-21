@@ -1,0 +1,36 @@
+# TTY where adm will start.
+TTY_NUMBER=7
+
+SWITCH_TTY=true
+PRINT_ISSUE=true
+
+# MOTD is shown inside the Bubble Tea UI when PRINT_MOTD=true.
+PRINT_MOTD=true
+
+#DEFAULT_USER=user
+AUTOLOGIN=false
+#AUTOLOGIN_SESSION=sway
+
+#DBUS_LAUNCH=true
+#XINITRC_LAUNCH=false
+#VERTICAL_SELECTION=false
+
+#LOGGING=rotate
+#LOGGING_FILE=/var/log/adm/[TTY_NUMBER].log
+
+# Arguments passed to the X server (default binary name: Xorg).
+#XORG_ARGS=
+
+# Override X server binary (e.g. Xlibre) if not named "Xorg" on PATH.
+#XORG_BIN=Xorg
+
+#DYNAMIC_MOTD=false
+#DYNAMIC_MOTD_PATH=/etc/adm/motd-gen.sh
+#MOTD_PATH=/etc/adm/motd
+
+#SESSION_ERROR_LOGGING=disabled
+#SESSION_ERROR_LOGGING_FILE=/var/log/adm/session-errors.[TTY_NUMBER].log
+
+#DEFAULT_XAUTHORITY=false
+#ROOTLESS_XORG=false
+#IDENTIFY_ENVS=false

@@ -1,0 +1,299 @@
+package dm
+
+import (
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+)
+
+const (
+	envXdgConfigHome   = "XDG_CONFIG_HOME"
+	envXdgRuntimeDir   = "XDG_RUNTIME_DIR"
+	envXdgSessionId    = "XDG_SESSION_ID"
+	envXdgSessionType  = "XDG_SESSION_TYPE"
+	envXdgSessionClass = "XDG_SESSION_CLASS"
+	envXdgSeat         = "XDG_SEAT"
+	envHome            = "HOME"
+	envPwd             = "PWD"
+	envUser            = "USER"
+	envLogname         = "LOGNAME"
+	envXauthority      = "XAUTHORITY"
+	envDisplay         = "DISPLAY"
+	envShell           = "SHELL"
+	envLang            = "LANG"
+	envPath            = "PATH"
+	envDesktopSession  = "DESKTOP_SESSION"
+	envXdgSessDesktop  = "XDG_SESSION_DESKTOP"
+	envUid             = "UID"
+	envXdgCurrDesktop  = "XDG_CURRENT_DESKTOP"
+
+	userExitScript    = ".config/adm-exit"
+	exitScriptKey     = "TIMEOUT"
+	exitScriptTimeout = 3
+)
+
+// session defines basic functions expected from desktop session
+type session interface {
+	startCarrier() error
+	getCarrierPid() int
+	finishCarrier() error
+}
+
+// commonSession defines structure with data required for starting the session
+type commonSession struct {
+	session
+	auth        authHandle
+	d           *desktop
+	conf        *config
+	dbus        *dbus
+	cmd         *exec.Cmd
+	interrupted bool
+}
+
+// Starts user's session
+func createSession(h authHandle, d *desktop, conf *config) *commonSession {
+	s := &commonSession{auth: h, d: d, conf: conf}
+
+	switch d.env {
+	case Wayland:
+		s.session = &waylandSession{s}
+	case X11:
+		s.session = &xorgSession{s, nil}
+	}
+
+	return s
+}
+
+// Performs common start of session.
+// Returns an error if the chosen environment failed to start or terminated abnormally.
+// The caller is expected to display the error and offer the user to pick another session.
+// A clean logout (or interrupt via SessionHandle) is reported as nil.
+func (s *commonSession) start() error {
+	s.defineEnvironment()
+	applyRlimits()
+
+	if err := s.startCarrier(); err != nil {
+		logPrint(err)
+		_ = s.finishCarrier()
+		return errors.New(s.d.env.string() + " carrier failed to start: " + err.Error())
+	}
+
+	if !s.conf.NoXdgFallback {
+		s.auth.usr().setenv(envXdgSessionType, s.d.env.sessionType())
+	}
+
+	if s.conf.AlwaysDbusLaunch {
+		s.dbus = &dbus{}
+	}
+
+	session, strExec := s.prepareGuiCommand()
+	s.cmd = session
+
+	if sessionErrLog, sessionErrLogErr := initSessionErrorLogger(s.conf); sessionErrLogErr == nil {
+		session.Stderr = sessionErrLog
+		defer func() { _ = sessionErrLog.Close() }()
+	} else {
+		logPrint(sessionErrLogErr)
+	}
+
+	if s.dbus != nil {
+		if s.auth.usr().getenv(dbusSessionBusAddress) == "" || s.conf.AlwaysDbusLaunch {
+			s.dbus.launch(s.auth.usr())
+		} else {
+			logPrint("DBUS_SESSION_BUS_ADDRESS is already set, skipping start of DBUS_LAUNCH")
+		}
+	}
+
+	logPrint("Starting " + strExec)
+	session.Env = s.auth.usr().environ()
+
+	if err := session.Start(); err != nil {
+		logPrint(strExec + " failed to start: " + err.Error())
+		_ = s.finishCarrier()
+		return errors.New(s.d.env.string() + " session failed to start: " + err.Error())
+	}
+
+	pid := s.getCarrierPid()
+	if pid <= 0 && session.Process != nil {
+		pid = session.Process.Pid
+	}
+
+	utmpEntry := addUtmpEntry(s.auth.usr().username, pid, s.conf.strTTY(), s.auth.usr().getenv(envDisplay))
+	logPrint("Added utmp entry")
+
+	waitErr := session.Wait()
+
+	if s.dbus != nil && s.dbus.pid > 0 {
+		s.dbus.interrupt()
+	}
+
+	carrierErr := s.finishCarrier()
+
+	s.runExitScript()
+
+	endUtmpEntry(utmpEntry)
+	logPrint("Ended utmp entry")
+
+	if s.interrupted {
+		return nil
+	}
+
+	if waitErr != nil {
+		logPrint(strExec + " finished with error: " + waitErr.Error() + ". For more details see `SESSION_ERROR_LOGGING` in configuration.")
+		return errors.New(s.d.env.string() + " session finished with error, please check logs")
+	}
+
+	if carrierErr != nil {
+		logPrint(s.d.env.string() + " finished with error: " + carrierErr.Error())
+		return errors.New(s.d.env.string() + " finished with error, please check logs")
+	}
+
+	return nil
+}
+
+// Make full path to envXdgRuntimeDir with proper permissions
+func (s *commonSession) mkXdgRuntimeDir() {
+	// All users need to interact with the parent directory
+	dirPath := filepath.Dir(s.auth.usr().getenv(envXdgRuntimeDir))
+	handleErr(os.MkdirAll(dirPath, 0755))
+
+	// Make the users specific XDG folder
+	handleErr(os.Mkdir(s.auth.usr().getenv(envXdgRuntimeDir), 0700))
+
+	// Set owner of XDG folder
+	if err := os.Chown(s.auth.usr().getenv(envXdgRuntimeDir), s.auth.usr().uid, s.auth.usr().gid); err != nil {
+		logPrint(err)
+	}
+}
+
+// Prepares environment and env variables for authorized user.
+func (s *commonSession) defineEnvironment() {
+	s.auth.defineSpecificEnvVariables()
+
+	s.auth.usr().setenv(envHome, s.auth.usr().homedir)
+	s.auth.usr().setenv(envPwd, s.auth.usr().homedir)
+	s.auth.usr().setenv(envUser, s.auth.usr().username)
+	s.auth.usr().setenv(envLogname, s.auth.usr().username)
+	s.auth.usr().setenv(envUid, s.auth.usr().strUid())
+	if !s.conf.NoXdgFallback {
+		s.auth.usr().setenvIfEmpty(envXdgConfigHome, s.auth.usr().homedir+"/.config")
+		s.auth.usr().setenvIfEmpty(envXdgRuntimeDir, "/run/user/"+s.auth.usr().strUid())
+		s.auth.usr().setenvIfEmpty(envXdgSeat, "seat0")
+		s.auth.usr().setenv(envXdgSessionClass, "user")
+	}
+	s.auth.usr().setenv(envShell, s.auth.usr().getShell())
+	s.auth.usr().setenvIfEmpty(envLang, s.conf.Lang)
+	if s.conf.UserLang != "" {
+		s.auth.usr().setenv(envLang, s.conf.UserLang)
+	}
+	s.auth.usr().setenvIfEmpty(envPath, os.Getenv(envPath))
+
+	if !s.conf.NoXdgFallback {
+		if s.d.name != "" {
+			s.auth.usr().setenv(envDesktopSession, s.d.name)
+			s.auth.usr().setenv(envXdgSessDesktop, s.d.getDesktopName())
+		} else if s.d.child != nil && s.d.child.name != "" {
+			s.auth.usr().setenv(envDesktopSession, s.d.child.name)
+			s.auth.usr().setenv(envXdgSessDesktop, s.d.child.getDesktopName())
+		}
+
+		if s.d.desktopNames != "" {
+			s.auth.usr().setenv(envXdgCurrDesktop, s.d.desktopNames)
+		} else if s.d.child != nil && s.d.child.desktopNames != "" {
+			s.auth.usr().setenv(envXdgCurrDesktop, s.d.child.desktopNames)
+		}
+	}
+
+	logPrint("Defined Environment")
+
+	// create XDG folder
+	if !s.conf.NoXdgFallback {
+		if !fileExists(s.auth.usr().getenv(envXdgRuntimeDir)) {
+			s.mkXdgRuntimeDir()
+
+			logPrint("Created XDG folder")
+		} else {
+			logPrint("XDG folder already exists, no need to create")
+		}
+	}
+
+	if err := os.Chdir(s.auth.usr().getenv(envPwd)); err != nil {
+		logPrint(err)
+	}
+}
+
+// Prepares command for starting GUI.
+func (s *commonSession) prepareGuiCommand() (cmd *exec.Cmd, strExec string) {
+	strExec, allowStartupPrefix := s.d.getStrExec()
+
+	startScript := s.d.isUser && !allowStartupPrefix
+
+	if allowStartupPrefix && s.conf.XinitrcLaunch && s.d.env == X11 && !strings.Contains(strExec, ".xinitrc") && fileExists(s.auth.usr().homedir+"/.xinitrc") {
+		startScript = true
+		strExec = s.auth.usr().homedir + "/.xinitrc " + strExec
+	} else if allowStartupPrefix && s.conf.DbusLaunch && !strings.Contains(strExec, "dbus-launch") {
+		s.dbus = &dbus{}
+	}
+
+	if startScript {
+		cmd = cmdAsUser(s.auth.usr(), s.getLoginShell()+" "+strExec)
+	} else {
+		cmd = cmdAsUser(s.auth.usr(), strExec)
+	}
+
+	return cmd, strExec
+}
+
+// Gets preferred login shell
+func (s *commonSession) getLoginShell() string {
+	if s.d.loginShell != "" {
+		return s.d.loginShell
+	}
+	return "/bin/sh"
+}
+
+// Runs session exit script
+func (s *commonSession) runExitScript() {
+	filePath := filepath.Join(s.auth.usr().homedir, userExitScript)
+	if fileExists(filePath) {
+		timeout := exitScriptTimeout
+		err := readProperties(filePath, func(key, value string) {
+			if key == exitScriptKey {
+				if v, err := strconv.Atoi(value); err == nil {
+					timeout = v
+				}
+			}
+		})
+		if err != nil {
+			logPrint(err)
+			return
+		}
+
+		c := make(chan error)
+		cmd := cmdAsUser(s.auth.usr(), s.getLoginShell(), filePath)
+		if err := cmd.Start(); err != nil {
+			logPrint("error during start of exit script", err)
+			return
+		}
+		go func(c chan error) {
+			c <- cmd.Wait()
+		}(c)
+
+		select {
+		case <-time.After(time.Duration(timeout) * time.Second):
+			if err := syscall.Kill(cmd.Process.Pid, syscall.SIGKILL); err != nil {
+				logPrint(err)
+			}
+		case err := <-c:
+			if err != nil {
+				logPrint(err)
+			}
+		}
+		close(c)
+	}
+}

@@ -36,6 +36,10 @@
 *.x86_64
 *.hex
 
+# Projec executables
+dist/
+adm
+
 # Debug files
 *.dSYM/
 *.su

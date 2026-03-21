@@ -1,0 +1,17 @@
+[Unit]
+Description=adm display manager (Bubble Tea TUI)
+After=systemd-user-sessions.service
+
+[Service]
+EnvironmentFile=/etc/adm/conf
+Type=idle
+ExecStart=/usr/bin/adm -d
+Restart=always
+TTYPath=/dev/tty${TTY_NUMBER}
+TTYReset=yes
+KillMode=process
+IgnoreSIGPIPE=no
+SendSIGHUP=yes
+
+[Install]
+Alias=display-manager.service

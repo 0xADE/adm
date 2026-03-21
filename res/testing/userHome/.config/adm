@@ -1,0 +1,7 @@
+#!/bin/fish
+set env waylAND
+set COMMAND none
+set SELECTION false
+set EXEC none
+set NAME window-manager
+set LOGINSHELL /bin/fish --login

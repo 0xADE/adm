@@ -16,6 +16,10 @@ var (
 	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62"))
 	errStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	hintStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	// High-contrast block for textinput cursor (works when reverse video is weak or off).
+	cursorFieldStyle = lipgloss.NewStyle().Background(lipgloss.Color("250")).Foreground(lipgloss.Color("0"))
+	// Blurred textinput still renders Cursor.View(); empty styles avoid a leftover block.
+	cursorBlurredStyle = lipgloss.NewStyle()
 )
 
 type phase int
@@ -73,19 +77,36 @@ type rootModel struct {
 	termH int
 }
 
+func setLoginCursorActive(ti *textinput.Model) {
+	ti.Cursor.Style = cursorFieldStyle
+	ti.Cursor.TextStyle = cursorFieldStyle
+}
+
+func setLoginCursorInactive(ti *textinput.Model) {
+	ti.Cursor.Style = cursorBlurredStyle
+	ti.Cursor.TextStyle = cursorBlurredStyle
+}
+
 // NewRoot creates the Bubble Tea model for one login + session cycle.
 func NewRoot(conf *dm.Config, motd, version string, h *dm.SessionHandle) tea.Model {
 	tu := textinput.New()
-	tu.Placeholder = "username"
+	tu.Prompt = "user > "
+	tu.Placeholder = ""
 	tu.CharLimit = 256
 	tu.Width = 40
+	tu.Cursor.Style = cursorFieldStyle
+	tu.Cursor.TextStyle = cursorFieldStyle
 	tu.Focus()
 
 	tp := textinput.New()
-	tp.Placeholder = "password"
+	tp.Prompt = "pass > "
+	tp.Placeholder = ""
 	tp.EchoMode = textinput.EchoPassword
 	tp.CharLimit = 256
 	tp.Width = 40
+	tp.Cursor.Style = cursorFieldStyle
+	tp.Cursor.TextStyle = cursorFieldStyle
+	setLoginCursorInactive(&tp)
 
 	if conf.DefaultUser != "" {
 		tu.SetValue(conf.DefaultUser)
@@ -140,10 +161,14 @@ func (m *rootModel) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focus == 0 {
 				m.focus = 1
 				m.userIn.Blur()
+				setLoginCursorInactive(&m.userIn)
+				setLoginCursorActive(&m.passIn)
 				m.passIn.Focus()
 			} else {
 				m.focus = 0
 				m.passIn.Blur()
+				setLoginCursorInactive(&m.passIn)
+				setLoginCursorActive(&m.userIn)
 				m.userIn.Focus()
 			}
 			return m, textinput.Blink
@@ -157,6 +182,8 @@ func (m *rootModel) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.focus = 1
 				m.userIn.Blur()
+				setLoginCursorInactive(&m.userIn)
+				setLoginCursorActive(&m.passIn)
 				m.passIn.Focus()
 				return m, textinput.Blink
 			}

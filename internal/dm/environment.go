@@ -3,7 +3,7 @@ package dm
 import "strings"
 
 const (
-	constEnvXorg    = "xorg"
+	constEnvX11     = "x11"
 	constEnvWayland = "wayland"
 
 	constEnvSUndefined  = "Undefined"
@@ -12,7 +12,7 @@ const (
 	constEnvSCustom     = "Custom"
 	constEnvSUserCustom = "User Custom"
 
-	constEnvSTXorg    = "x11"
+	constEnvSTX11     = "x11"
 	constEnvSTWayland = "wayland"
 )
 
@@ -25,8 +25,8 @@ const (
 	// Undefined represents no environment
 	Undefined enEnvironment = iota
 
-	// Xorg represents Xorg environment
-	Xorg
+	// X11 represents Xorg/XLibre environment
+	X11
 
 	// Wayland represents Wayland environment
 	Wayland
@@ -40,14 +40,14 @@ const (
 
 // Returns default environment as string value.
 func defaultEnv() string {
-	return constEnvXorg
+	return constEnvX11
 }
 
 // Parse input env and selects corresponding environment.
 func parseEnv(env, defaultValue string) enEnvironment {
 	switch strings.ToLower(sanitizeValue(env, defaultValue)) {
-	case constEnvXorg:
-		return Xorg
+	case constEnvX11:
+		return X11
 	case constEnvWayland:
 		return Wayland
 	}
@@ -57,8 +57,8 @@ func parseEnv(env, defaultValue string) enEnvironment {
 // Stringify enEnvironment value.
 func (e enEnvironment) stringify() string {
 	switch e {
-	case Xorg:
-		return constEnvXorg
+	case X11:
+		return constEnvX11
 	case Wayland:
 		return constEnvWayland
 	}
@@ -73,6 +73,6 @@ func (e enEnvironment) string() string {
 
 // Session type of enEnvironment
 func (e enEnvironment) sessionType() string {
-	strings := []string{"", constEnvSTXorg, constEnvSTWayland, "", ""}
+	strings := []string{"", constEnvSTX11, constEnvSTWayland, "", ""}
 	return strings[e]
 }

@@ -60,7 +60,7 @@ func TestPrepareGuiCommandXinitrc(t *testing.T) {
 	}
 
 	// Should be correct
-	d.env = Xorg
+	d.env = X11
 	c.XinitrcLaunch = true
 	_, exec = s.prepareGuiCommand()
 	if !strings.Contains(exec, ".xinitrc") {
@@ -75,7 +75,7 @@ func TestPrepareGuiCommandXinitrc(t *testing.T) {
 	}
 
 	// Does not expects .xinitrc from homedir
-	d.env = Xorg
+	d.env = X11
 	d.exec = ""
 	c.XinitrcLaunch = true
 	_, exec = s.prepareGuiCommand()

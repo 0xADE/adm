@@ -11,6 +11,8 @@ import (
 	"github.com/0xADE/adm/internal/ui"
 )
 
+const version = `adm v0.0.0`
+
 func main() {
 	runtime.LockOSThread()
 	dm.TEST_MODE = false
@@ -25,7 +27,7 @@ func main() {
 	defer dm.StopDaemon(conf, fTTY)
 
 	h := dm.InitSessionHandle()
-	p := tea.NewProgram(ui.NewRoot(conf, motd, h), tea.WithAltScreen())
+	p := tea.NewProgram(ui.NewRoot(conf, motd, version, h), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		os.Exit(1)
 	}

@@ -8,7 +8,7 @@ import (
 )
 
 func TestStringifyEnv(t *testing.T) {
-	if Xorg.stringify() != constEnvXorg {
+	if X11.stringify() != constEnvX11 {
 		t.Error("TestStringifyEnv: wrong value for Xorg env")
 	}
 
@@ -16,7 +16,7 @@ func TestStringifyEnv(t *testing.T) {
 		t.Error("TestStringifyEnv: wrong value for Wayland env")
 	}
 
-	if Custom.stringify() != constEnvXorg {
+	if Custom.stringify() != constEnvX11 {
 		t.Error("TestStringifyEnv: wrong value for Custom env")
 	}
 }
@@ -26,7 +26,7 @@ func TestStringEnv(t *testing.T) {
 		t.Error("TestStringEnv: wrong value for Xorg env")
 	}
 
-	if Xorg.string() != constEnvSXorg {
+	if X11.string() != constEnvSXorg {
 		t.Error("TestStringEnv: wrong value for Xorg env")
 	}
 
@@ -47,12 +47,12 @@ func TestParseEnv(t *testing.T) {
 	var env enEnvironment
 
 	env = parseEnv("", "xorg")
-	if env != Xorg {
+	if env != X11 {
 		t.Error("TestParseEnv: wrong default value")
 	}
 
 	env = parseEnv("xorg", "wayland")
-	if env != Xorg {
+	if env != X11 {
 		t.Error("TestParseEnv: wrong parsed value for wayland")
 	}
 
@@ -62,7 +62,7 @@ func TestParseEnv(t *testing.T) {
 	}
 
 	env = parseEnv("aaa", "bbb")
-	if env != Xorg {
+	if env != X11 {
 		t.Error("TestParseEnv: wrong fallback value")
 	}
 }
@@ -155,7 +155,7 @@ func TestGetLastDesktop(t *testing.T) {
 	usr := &sysuser{}
 	usr.homedir = getTestingPath("userHome")
 
-	desktops := []*desktop{{exec: "/usr/bin/none", env: Xorg}, {exec: "/usr/bin/none", env: Wayland}, {exec: "/usr/bin/none2", env: Wayland}}
+	desktops := []*desktop{{exec: "/usr/bin/none", env: X11}, {exec: "/usr/bin/none", env: Wayland}, {exec: "/usr/bin/none2", env: Wayland}}
 
 	if getLastDesktop(usr, desktops) != 1 {
 		t.Error("TestGetLastDesktop: expected different index")
@@ -200,7 +200,7 @@ func TestIsLastDesktopForSave(t *testing.T) {
 		t.Error("TestIsLastDesktopForSave: desktops should not need to save")
 	}
 
-	lastDesktop.env = Xorg
+	lastDesktop.env = X11
 	if !isLastDesktopForSave(usr, lastDesktop, currentDesktop) {
 		t.Error("TestIsLastDesktopForSave: desktop should be saved, env is different")
 	}
@@ -251,7 +251,7 @@ func TestFindAutoselectDesktop(t *testing.T) {
 		t.Error("TestFindAutoselectDesktop: could not find desktop by its name")
 	}
 
-	d2 := findAutoselectDesktop("custom-desktop2", Xorg, desktops)
+	d2 := findAutoselectDesktop("custom-desktop2", X11, desktops)
 	if d2 == nil || d2.name != "CustomDesktop2" {
 		t.Error("TestFindAutoselectDesktop: could not find desktop by its exec")
 	}

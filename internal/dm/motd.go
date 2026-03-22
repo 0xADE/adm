@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	defaultMotd = `Select Display Environment`
+	defaultMotd = `Welcome to the Machine`
 )
 
 // MotdText returns MOTD content for TUI display without printing to the terminal.

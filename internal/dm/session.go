@@ -61,7 +61,7 @@ func createSession(h authHandle, d *desktop, conf *config) *commonSession {
 	switch d.env {
 	case Wayland:
 		s.session = &waylandSession{s}
-	case Xorg:
+	case X11:
 		s.session = &xorgSession{s, nil}
 	}
 
@@ -214,7 +214,7 @@ func (s *commonSession) prepareGuiCommand() (cmd *exec.Cmd, strExec string) {
 
 	startScript := s.d.isUser && !allowStartupPrefix
 
-	if allowStartupPrefix && s.conf.XinitrcLaunch && s.d.env == Xorg && !strings.Contains(strExec, ".xinitrc") && fileExists(s.auth.usr().homedir+"/.xinitrc") {
+	if allowStartupPrefix && s.conf.XinitrcLaunch && s.d.env == X11 && !strings.Contains(strExec, ".xinitrc") && fileExists(s.auth.usr().homedir+"/.xinitrc") {
 		startScript = true
 		strExec = s.auth.usr().homedir + "/.xinitrc " + strExec
 	} else if allowStartupPrefix && s.conf.DbusLaunch && !strings.Contains(strExec, "dbus-launch") {

@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xADE/adm/internal/dm"
 )
@@ -28,14 +29,33 @@ type deskItem struct {
 	d *dm.Desktop
 }
 
-func (i deskItem) Title() string       { return i.d.Name() }
-func (i deskItem) Description() string { return i.d.EnvLabel() }
-func (i deskItem) FilterValue() string { return i.d.Name() }
+// sessionEnvColumn is the visual column (0-based end of padding) before ":x11" / ":wayland".
+const sessionEnvColumn = 24
+
+func (i deskItem) Title() string {
+	return formatSessionLine(i.d.Name(), i.d.EnvLabel())
+}
+
+func (i deskItem) Description() string { return "" }
+
+func (i deskItem) FilterValue() string {
+	return i.d.Name() + " " + i.d.EnvLabel()
+}
+
+func formatSessionLine(name, env string) string {
+	nw := ansi.StringWidth(name)
+	pad := sessionEnvColumn - nw
+	if pad < 1 {
+		pad = 1
+	}
+	return name + strings.Repeat(" ", pad) + ":" + env
+}
 
 // rootModel drives login and session selection in one program.
 type rootModel struct {
 	conf   *dm.Config
 	motd   string
+	ver    string
 	h      *dm.SessionHandle
 	errMsg string
 	auth   dm.AuthHandle
@@ -48,10 +68,13 @@ type rootModel struct {
 	desktops []*dm.Desktop
 	lastIdx  int
 	phase    phase
+
+	termW int
+	termH int
 }
 
 // NewRoot creates the Bubble Tea model for one login + session cycle.
-func NewRoot(conf *dm.Config, motd string, h *dm.SessionHandle) tea.Model {
+func NewRoot(conf *dm.Config, motd, version string, h *dm.SessionHandle) tea.Model {
 	tu := textinput.New()
 	tu.Placeholder = "username"
 	tu.CharLimit = 256
@@ -73,6 +96,7 @@ func NewRoot(conf *dm.Config, motd string, h *dm.SessionHandle) tea.Model {
 	return &rootModel{
 		conf:   conf,
 		motd:   motd,
+		ver:    version,
 		h:      h,
 		userIn: tu,
 		passIn: tp,
@@ -108,6 +132,7 @@ func (m *rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *rootModel) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		m.termW, m.termH = msg.Width, msg.Height
 		return m, nil
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -184,8 +209,19 @@ func (m *rootModel) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 				items = append(items, deskItem{d: dd})
 			}
 			delegate := list.NewDefaultDelegate()
-			l := list.New(items, delegate, 80, min(22, len(items)+6))
-			l.Title = "Session"
+			delegate.ShowDescription = false
+			delegate.SetSpacing(0)
+
+			listW := sessionListWidth(m.termW)
+			listH := min(22, len(items)+6)
+			if m.termH > 0 {
+				listH = m.termH - 10
+				if listH < 6 {
+					listH = 6
+				}
+			}
+			l := list.New(items, delegate, listW, listH)
+			l.Title = "Select display environment"
 			l.Styles.Title = titleStyle
 			if lastIdx >= 0 && lastIdx < len(desktops) {
 				l.Select(lastIdx)
@@ -212,10 +248,26 @@ func min(a, b int) int {
 	return b
 }
 
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// sessionListWidth caps list width so the session panel can sit centered in wide terminals.
+func sessionListWidth(termW int) int {
+	if termW <= 0 {
+		return 80
+	}
+	return min(80, max(40, termW-8))
+}
+
 func (m *rootModel) updateSession(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.sessList.SetWidth(msg.Width - 4)
+		m.termW, m.termH = msg.Width, msg.Height
+		m.sessList.SetWidth(sessionListWidth(msg.Width))
 		m.sessList.SetHeight(msg.Height - 10)
 		return m, nil
 	case tea.KeyMsg:
@@ -244,7 +296,6 @@ func (m *rootModel) updateSession(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *rootModel) View() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("adm") + "\n\n")
 	if m.motd != "" {
 		b.WriteString(m.motd + "\n\n")
 	}
@@ -259,5 +310,11 @@ func (m *rootModel) View() string {
 	case phaseSession:
 		b.WriteString(m.sessList.View())
 	}
-	return b.String()
+	b.WriteString("\n\n")
+	b.WriteString(m.ver)
+	inner := b.String()
+	if m.termW > 0 && m.termH > 0 {
+		return lipgloss.Place(m.termW, m.termH, lipgloss.Center, lipgloss.Center, inner)
+	}
+	return inner
 }

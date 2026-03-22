@@ -174,7 +174,7 @@ func listAllDesktops(usr *sysuser, pathXorgDesktops, pathWaylandDesktops string)
 	var result []*desktop
 
 	// load Xorg desktops
-	result = append(result, listDesktops(Xorg, pathXorgDesktops, usr.homedir+pathLocalXSessions)...)
+	result = append(result, listDesktops(X11, pathXorgDesktops, usr.homedir+pathLocalXSessions)...)
 
 	// load Wayland desktops
 	result = append(result, listDesktops(Wayland, pathWaylandDesktops, usr.homedir+pathLocalWaylandSessions)...)

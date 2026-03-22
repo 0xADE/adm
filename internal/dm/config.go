@@ -199,13 +199,13 @@ func (c *config) ParseEnv(value, defaultValue string) enEnvironment {
 // Parses default environment type from string
 func (c *config) ParseDefaultEnv(value, defaultValue string) enEnvironment {
 	switch strings.ToLower(sanitizeValue(value, defaultValue)) {
-	case constEnvXorg:
-		defaultEnvValue = Xorg
+	case constEnvX11:
+		defaultEnvValue = X11
 	case constEnvWayland:
 		defaultEnvValue = Wayland
 	default:
 		// The default of default, could be once defined by build tag.
-		defaultEnvValue = Xorg
+		defaultEnvValue = X11
 	}
 	return defaultEnvValue
 }

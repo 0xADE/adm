@@ -23,6 +23,9 @@ var (
 	cursorFieldStyle = lipgloss.NewStyle().Background(lipgloss.Color("250")).Foreground(lipgloss.Color("0"))
 	// Blurred textinput still renders Cursor.View(); empty styles avoid a leftover block.
 	cursorBlurredStyle = lipgloss.NewStyle()
+
+	menuItemStyle    = lipgloss.NewStyle().Padding(0, 1)
+	menuItemSelStyle = lipgloss.NewStyle().Padding(0, 1).Reverse(true).Bold(true)
 )
 
 type phase int
@@ -35,6 +38,37 @@ const (
 
 type deskItem struct {
 	d *dm.Desktop
+}
+
+// cmdMenuItem is one entry in the bottom command menu shown on every TUI
+// screen. It maps the user-facing label to the dm.ProcessCommand verb
+// (poweroff/reboot/suspend) that should be executed when the item is
+// activated via Tab + Enter.
+type cmdMenuItem struct {
+	label   string
+	command string
+}
+
+// buildCmdMenu returns the bottom command menu derived from the active
+// configuration. The menu is empty when commands are disabled globally
+// (AllowCommands=false) and individual entries are omitted when the
+// corresponding configuration field is blank, mirroring the behaviour of
+// dm.ProcessCommand which treats blank commands as a no-op.
+func buildCmdMenu(c *dm.Config) []cmdMenuItem {
+	if !c.AllowCommands {
+		return nil
+	}
+	var m []cmdMenuItem
+	if strings.TrimSpace(c.CmdReboot) != "" {
+		m = append(m, cmdMenuItem{label: "Reboot", command: "reboot"})
+	}
+	if strings.TrimSpace(c.CmdPoweroff) != "" {
+		m = append(m, cmdMenuItem{label: "Shutdown", command: "poweroff"})
+	}
+	if strings.TrimSpace(c.CmdSuspend) != "" {
+		m = append(m, cmdMenuItem{label: "Suspend", command: "suspend"})
+	}
+	return m
 }
 
 // sessionEnvColumn is the visual column (0-based end of padding) before ":x11" / ":wayland".
@@ -83,6 +117,16 @@ type rootModel struct {
 	username   string
 	password   string
 	sessionErr string
+
+	// Bottom command menu shown on every TUI phase. Built once in NewRoot;
+	// nil/empty when commands are disabled or no commands are configured.
+	cmdMenu []cmdMenuItem
+	// Per-phase selection inside cmdMenu. -1 means focus is on the phase's
+	// primary widget (login fields, session list, error retry); 0..N-1 means
+	// focus is on that menu item.
+	loginMenuIdx int
+	sessMenuIdx  int
+	errMenuIdx   int
 
 	termW int
 	termH int
@@ -133,14 +177,18 @@ func NewRoot(conf *dm.Config, motd, version string, h *dm.SessionHandle) tea.Mod
 	}
 
 	return &rootModel{
-		conf:        conf,
-		motd:        motd,
-		ver:         version,
-		h:           h,
-		userIn:      tu,
-		passIn:      tp,
-		phase:       phaseLogin,
-		asciiCursor: asciiCursor,
+		conf:         conf,
+		motd:         motd,
+		ver:          version,
+		h:            h,
+		userIn:       tu,
+		passIn:       tp,
+		phase:        phaseLogin,
+		asciiCursor:  asciiCursor,
+		cmdMenu:      buildCmdMenu(conf),
+		loginMenuIdx: -1,
+		sessMenuIdx:  -1,
+		errMenuIdx:   -1,
 	}
 }
 
@@ -171,6 +219,42 @@ func (m *rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// advanceLoginFocus moves focus around the login phase's circular ring
+// of (user field, pass field, menu item 0, ..., menu item N-1). delta is
+// +1 for Tab and -1 for Shift+Tab. Field cursors are activated/deactivated
+// to match the new focus; the menu has no cursor of its own (highlight is
+// rendered by View() based on m.loginMenuIdx).
+func (m *rootModel) advanceLoginFocus(delta int) tea.Cmd {
+	n := 2 + len(m.cmdMenu)
+	cur := m.focus
+	if m.loginMenuIdx >= 0 {
+		cur = 2 + m.loginMenuIdx
+	}
+	cur = ((cur+delta)%n + n) % n
+	if cur < 2 {
+		m.loginMenuIdx = -1
+		m.focus = cur
+		if cur == 0 {
+			m.passIn.Blur()
+			setLoginCursorInactive(&m.passIn)
+			m.userIn.Focus()
+			setLoginCursorActive(&m.userIn)
+		} else {
+			m.userIn.Blur()
+			setLoginCursorInactive(&m.userIn)
+			m.passIn.Focus()
+			setLoginCursorActive(&m.passIn)
+		}
+		return textinput.Blink
+	}
+	m.loginMenuIdx = cur - 2
+	m.userIn.Blur()
+	setLoginCursorInactive(&m.userIn)
+	m.passIn.Blur()
+	setLoginCursorInactive(&m.passIn)
+	return nil
+}
+
 func (m *rootModel) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -178,22 +262,16 @@ func (m *rootModel) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "tab", "shift+tab":
-			if m.focus == 0 {
-				m.focus = 1
-				m.userIn.Blur()
-				setLoginCursorInactive(&m.userIn)
-				setLoginCursorActive(&m.passIn)
-				m.passIn.Focus()
-			} else {
-				m.focus = 0
-				m.passIn.Blur()
-				setLoginCursorInactive(&m.passIn)
-				setLoginCursorActive(&m.userIn)
-				m.userIn.Focus()
-			}
-			return m, textinput.Blink
+		case "tab":
+			return m, m.advanceLoginFocus(+1)
+		case "shift+tab":
+			return m, m.advanceLoginFocus(-1)
 		case "enter":
+			if m.loginMenuIdx >= 0 {
+				cmd := m.cmdMenu[m.loginMenuIdx].command
+				_ = dm.ProcessCommand(cmd, m.conf, nil, false)
+				return m, tea.Quit
+			}
 			user := strings.TrimSpace(m.userIn.Value())
 			// Enter on username: run :commands immediately, else move to password.
 			if m.focus == 0 {
@@ -253,6 +331,9 @@ func (m *rootModel) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	if m.loginMenuIdx >= 0 {
+		return m, nil
+	}
 	var cmd tea.Cmd
 	if m.focus == 0 {
 		m.userIn, cmd = m.userIn.Update(msg)
@@ -260,6 +341,44 @@ func (m *rootModel) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.passIn, cmd = m.passIn.Update(msg)
 	}
 	return m, cmd
+}
+
+// renderCmdMenu renders the bottom command menu as a single horizontal row
+// of bracketed labels. The item at index sel (0..len(items)-1) is rendered
+// in the selected style; sel < 0 renders all items in the unselected style
+// (e.g. when focus is on the primary widget of the current phase). Returns
+// an empty string when there are no items, so callers can distinguish "no
+// menu at all" from "menu with nothing focused".
+func renderCmdMenu(items []cmdMenuItem, sel int) string {
+	if len(items) == 0 {
+		return ""
+	}
+	parts := make([]string, len(items))
+	for i, it := range items {
+		label := "[ " + it.label + " ]"
+		if i == sel {
+			parts[i] = menuItemSelStyle.Render(label)
+		} else {
+			parts[i] = menuItemStyle.Render(label)
+		}
+	}
+	return strings.Join(parts, "  ")
+}
+
+// nextMenuIdx advances a per-phase menu selection by delta (+1 or -1) and
+// wraps around the sentinel value -1 (which represents "focus on the
+// primary widget of the phase"). The cycle is therefore -1, 0, 1, ...,
+// n-1, -1, 0, ..., independent of the caller.
+func nextMenuIdx(cur, n, delta int) int {
+	if n <= 0 {
+		return -1
+	}
+	total := n + 1
+	v := (cur + 1 + delta) % total
+	if v < 0 {
+		v += total
+	}
+	return v - 1
 }
 
 func min(a, b int) int {
@@ -292,7 +411,25 @@ func (m *rootModel) updateSession(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sessList.SetHeight(msg.Height - 10)
 		return m, nil
 	case tea.KeyMsg:
-		if msg.String() == "enter" {
+		switch msg.String() {
+		case "tab":
+			if len(m.cmdMenu) == 0 {
+				return m, nil
+			}
+			m.sessMenuIdx = nextMenuIdx(m.sessMenuIdx, len(m.cmdMenu), +1)
+			return m, nil
+		case "shift+tab":
+			if len(m.cmdMenu) == 0 {
+				return m, nil
+			}
+			m.sessMenuIdx = nextMenuIdx(m.sessMenuIdx, len(m.cmdMenu), -1)
+			return m, nil
+		case "enter":
+			if m.sessMenuIdx >= 0 {
+				cmd := m.cmdMenu[m.sessMenuIdx].command
+				_ = dm.ProcessCommand(cmd, m.conf, nil, false)
+				return m, tea.Quit
+			}
 			i := m.sessList.Index()
 			if i < 0 || i >= len(m.desktops) {
 				return m, nil
@@ -307,6 +444,9 @@ func (m *rootModel) updateSession(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ud, _ := dm.LoadUserConfig(su.HomeDir())
 			d := dm.FinalizeDesktopSelection(auth, m.conf, ud, selected, m.desktops)
 			return m.runSessionAndContinue(auth, d, selected.Name())
+		}
+		if m.sessMenuIdx >= 0 {
+			return m, nil
 		}
 	}
 	var cmd tea.Cmd
@@ -376,7 +516,24 @@ func (m *rootModel) updateSessionError(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		switch msg.String() {
+		case "tab":
+			if len(m.cmdMenu) == 0 {
+				return m, nil
+			}
+			m.errMenuIdx = nextMenuIdx(m.errMenuIdx, len(m.cmdMenu), +1)
+			return m, nil
+		case "shift+tab":
+			if len(m.cmdMenu) == 0 {
+				return m, nil
+			}
+			m.errMenuIdx = nextMenuIdx(m.errMenuIdx, len(m.cmdMenu), -1)
+			return m, nil
 		case "enter":
+			if m.errMenuIdx >= 0 {
+				cmd := m.cmdMenu[m.errMenuIdx].command
+				_ = dm.ProcessCommand(cmd, m.conf, nil, false)
+				return m, tea.Quit
+			}
 			auth, err := dm.Authenticate(m.conf, m.username, m.password)
 			if err != nil {
 				m.phase = phaseLogin
@@ -460,7 +617,7 @@ func (m *rootModel) View() string {
 	}
 	switch m.phase {
 	case phaseLogin:
-		b.WriteString(hintStyle.Render("Login (Tab: fields, Enter: next field / submit)") + "\n\n")
+		b.WriteString(hintStyle.Render("Login (Tab: fields/commands, Enter: submit)") + "\n\n")
 		b.WriteString(renderLoginInput(m.userIn, m.asciiCursor) + "\n")
 		b.WriteString(renderLoginInput(m.passIn, m.asciiCursor) + "\n")
 	case phaseSession:
@@ -472,8 +629,33 @@ func (m *rootModel) View() string {
 	b.WriteString("\n\n")
 	b.WriteString(m.ver)
 	inner := b.String()
+
+	sel := -1
+	switch m.phase {
+	case phaseLogin:
+		sel = m.loginMenuIdx
+	case phaseSession:
+		sel = m.sessMenuIdx
+	case phaseSessionError:
+		sel = m.errMenuIdx
+	}
+	menu := renderCmdMenu(m.cmdMenu, sel)
+
 	if m.termW > 0 && m.termH > 0 {
-		return lipgloss.Place(m.termW, m.termH, lipgloss.Center, lipgloss.Center, inner)
+		if menu == "" {
+			return lipgloss.Place(m.termW, m.termH, lipgloss.Center, lipgloss.Center, inner)
+		}
+		bottomH := lipgloss.Height(menu) + 1
+		topH := m.termH - bottomH
+		if topH < 1 {
+			topH = 1
+		}
+		top := lipgloss.Place(m.termW, topH, lipgloss.Center, lipgloss.Center, inner)
+		bottom := lipgloss.Place(m.termW, bottomH, lipgloss.Center, lipgloss.Bottom, menu)
+		return lipgloss.JoinVertical(lipgloss.Left, top, bottom)
+	}
+	if menu != "" {
+		return inner + "\n" + menu
 	}
 	return inner
 }

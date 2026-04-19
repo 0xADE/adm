@@ -42,40 +42,52 @@ func UserOf(a AuthHandle) *Sysuser {
 }
 
 // RunLoginSession starts the graphical session after auth and desktop resolution.
-func RunLoginSession(conf *config, h *SessionHandle, auth authHandle, d *desktop) string {
+//
+// Returns:
+//   - cmd: a built-in :command extracted from the username field, if any
+//   - err: a short, user-facing error describing why the chosen environment
+//     could not start or terminated abnormally; the caller is expected to display
+//     it and offer the user to pick another session
+//
+// On any return path the auth handle is closed; the caller must re-authenticate
+// (the UI keeps the entered username/password for that purpose).
+func RunLoginSession(conf *config, h *SessionHandle, auth authHandle, d *desktop) (cmd string, err error) {
 	if auth != nil && auth.GetCommand() != "" {
-		return auth.GetCommand()
+		return auth.GetCommand(), nil
 	}
 
 	h.auth = auth
-	defer func() { h.auth = nil }()
+	defer func() {
+		h.auth = nil
+		if auth != nil {
+			auth.CloseAuth()
+		}
+	}()
 
-	if err := handleLoginRetries(conf, &DefaultLoginRetryPathProvider{}); err != nil {
-		auth.CloseAuth()
-		handleStrErr("Exceeded maximum number of allowed login retries in short period.")
-		return ""
+	if rerr := handleLoginRetries(conf, &DefaultLoginRetryPathProvider{}); rerr != nil {
+		return "", errors.New("Exceeded maximum number of allowed login retries in short period.")
 	}
 
 	if h.interrupted {
-		return ""
+		return "", nil
 	}
 
 	runDisplayScript(conf.DisplayStartScript)
+	defer runDisplayScript(conf.DisplayStopScript)
 
-	if err := auth.openAuthSession(d.env.sessionType()); err != nil {
-		auth.CloseAuth()
-		handleStrErr("No active transaction")
-		return ""
+	if oerr := auth.openAuthSession(d.env.sessionType()); oerr != nil {
+		logPrint(oerr)
+		return "", errors.New("Failed to open PAM session: " + oerr.Error())
 	}
 
 	h.session = createSession(auth, d, conf)
-	h.session.start()
+	defer func() { h.session = nil }()
 
-	auth.CloseAuth()
+	if serr := h.session.start(); serr != nil {
+		return "", serr
+	}
 
-	runDisplayScript(conf.DisplayStopScript)
-
-	return ""
+	return "", nil
 }
 
 // LoadUserConfig reads ~/.config/adm or ~/.adm and optional LANG for the user.

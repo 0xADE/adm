@@ -1,6 +1,7 @@
 package dm
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,7 +39,7 @@ const (
 
 // session defines basic functions expected from desktop session
 type session interface {
-	startCarrier()
+	startCarrier() error
 	getCarrierPid() int
 	finishCarrier() error
 }
@@ -68,12 +69,19 @@ func createSession(h authHandle, d *desktop, conf *config) *commonSession {
 	return s
 }
 
-// Performs common start of session
-func (s *commonSession) start() {
+// Performs common start of session.
+// Returns an error if the chosen environment failed to start or terminated abnormally.
+// The caller is expected to display the error and offer the user to pick another session.
+// A clean logout (or interrupt via SessionHandle) is reported as nil.
+func (s *commonSession) start() error {
 	s.defineEnvironment()
 	applyRlimits()
 
-	s.startCarrier()
+	if err := s.startCarrier(); err != nil {
+		logPrint(err)
+		s.finishCarrier()
+		return errors.New(s.d.env.string() + " carrier failed to start: " + err.Error())
+	}
 
 	if !s.conf.NoXdgFallback {
 		s.auth.usr().setenv(envXdgSessionType, s.d.env.sessionType())
@@ -105,19 +113,20 @@ func (s *commonSession) start() {
 	session.Env = s.auth.usr().environ()
 
 	if err := session.Start(); err != nil {
+		logPrint(strExec + " failed to start: " + err.Error())
 		s.finishCarrier()
-		handleErr(err)
+		return errors.New(s.d.env.string() + " session failed to start: " + err.Error())
 	}
 
 	pid := s.getCarrierPid()
-	if pid <= 0 {
+	if pid <= 0 && session.Process != nil {
 		pid = session.Process.Pid
 	}
 
 	utmpEntry := addUtmpEntry(s.auth.usr().username, pid, s.conf.strTTY(), s.auth.usr().getenv(envDisplay))
 	logPrint("Added utmp entry")
 
-	err := session.Wait()
+	waitErr := session.Wait()
 
 	if s.dbus != nil && s.dbus.pid > 0 {
 		s.dbus.interrupt()
@@ -130,15 +139,21 @@ func (s *commonSession) start() {
 	endUtmpEntry(utmpEntry)
 	logPrint("Ended utmp entry")
 
-	if !s.interrupted && err != nil {
-		logPrint(strExec + " finished with error: " + err.Error() + ". For more details see `SESSION_ERROR_LOGGING` in configuration.")
-		handleStrErr(s.d.env.string() + " session finished with error, please check logs")
+	if s.interrupted {
+		return nil
 	}
 
-	if !s.interrupted && carrierErr != nil {
-		logPrint(s.d.env.string() + " finished with error: " + carrierErr.Error())
-		handleStrErr(s.d.env.string() + " finished with error, please check logs")
+	if waitErr != nil {
+		logPrint(strExec + " finished with error: " + waitErr.Error() + ". For more details see `SESSION_ERROR_LOGGING` in configuration.")
+		return errors.New(s.d.env.string() + " session finished with error, please check logs")
 	}
+
+	if carrierErr != nil {
+		logPrint(s.d.env.string() + " finished with error: " + carrierErr.Error())
+		return errors.New(s.d.env.string() + " finished with error, please check logs")
+	}
+
+	return nil
 }
 
 // Make full path to envXdgRuntimeDir with proper permissions

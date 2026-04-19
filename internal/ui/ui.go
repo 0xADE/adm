@@ -30,6 +30,7 @@ type phase int
 const (
 	phaseLogin phase = iota
 	phaseSession
+	phaseSessionError
 )
 
 type deskItem struct {
@@ -75,6 +76,13 @@ type rootModel struct {
 	desktops []*dm.Desktop
 	lastIdx  int
 	phase    phase
+
+	// Cached credentials kept in memory between session-launch attempts so the
+	// user does not have to re-type them after a failed environment start.
+	// Cleared when control returns to phaseLogin or when the program exits.
+	username   string
+	password   string
+	sessionErr string
 
 	termW int
 	termH int
@@ -157,6 +165,8 @@ func (m *rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateLogin(msg)
 	case phaseSession:
 		return m.updateSession(msg)
+	case phaseSessionError:
+		return m.updateSessionError(msg)
 	}
 	return m, nil
 }
@@ -219,6 +229,8 @@ func (m *rootModel) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.errMsg = ""
 			m.auth = auth
+			m.username = strings.TrimSpace(user)
+			m.password = pass
 
 			su := dm.UserOf(auth)
 			if su == nil {
@@ -229,42 +241,17 @@ func (m *rootModel) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 			chosen, desktops, lastIdx, needUI := dm.TryAutoSelectDesktop(auth, m.conf, ud)
 			m.desktops = desktops
 			m.lastIdx = lastIdx
+			m.buildSessionList(desktops, lastIdx)
 
 			if ud != nil && ud.SelectionMode() == dm.SelectionFalse {
 				d := dm.FinalizeDesktopSelection(auth, m.conf, ud, ud, desktops)
-				dm.RunLoginSession(m.conf, m.h, auth, d)
-				return m, tea.Quit
+				return m.runSessionAndContinue(auth, d, d.Name())
 			}
 			if !needUI && chosen != nil {
 				d := dm.FinalizeDesktopSelection(auth, m.conf, ud, chosen, desktops)
-				dm.RunLoginSession(m.conf, m.h, auth, d)
-				return m, tea.Quit
+				return m.runSessionAndContinue(auth, d, chosen.Name())
 			}
 
-			items := make([]list.Item, 0, len(desktops))
-			for _, d := range desktops {
-				dd := d
-				items = append(items, deskItem{d: dd})
-			}
-			delegate := list.NewDefaultDelegate()
-			delegate.ShowDescription = false
-			delegate.SetSpacing(0)
-
-			listW := sessionListWidth(m.termW)
-			listH := min(22, len(items)+6)
-			if m.termH > 0 {
-				listH = m.termH - 10
-				if listH < 6 {
-					listH = 6
-				}
-			}
-			l := list.New(items, delegate, listW, listH)
-			l.Title = "Select display environment"
-			l.Styles.Title = titleStyle
-			if lastIdx >= 0 && lastIdx < len(desktops) {
-				l.Select(lastIdx)
-			}
-			m.sessList = l
 			m.phase = phaseSession
 			return m, nil
 		}
@@ -323,13 +310,102 @@ func (m *rootModel) updateSession(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			ud, _ := dm.LoadUserConfig(su.HomeDir())
 			d := dm.FinalizeDesktopSelection(auth, m.conf, ud, selected, m.desktops)
-			dm.RunLoginSession(m.conf, m.h, auth, d)
-			return m, tea.Quit
+			return m.runSessionAndContinue(auth, d, selected.Name())
 		}
 	}
 	var cmd tea.Cmd
 	m.sessList, cmd = m.sessList.Update(msg)
 	return m, cmd
+}
+
+// buildSessionList constructs the session-selection list for the given desktops.
+// It is called both on the initial transition into phaseSession and whenever the
+// list needs to be (re)built after an autoselect path or a failed launch.
+func (m *rootModel) buildSessionList(desktops []*dm.Desktop, lastIdx int) {
+	items := make([]list.Item, 0, len(desktops))
+	for _, d := range desktops {
+		dd := d
+		items = append(items, deskItem{d: dd})
+	}
+	delegate := list.NewDefaultDelegate()
+	delegate.ShowDescription = false
+	delegate.SetSpacing(0)
+
+	listW := sessionListWidth(m.termW)
+	listH := min(22, len(items)+6)
+	if m.termH > 0 {
+		listH = m.termH - 10
+		if listH < 6 {
+			listH = 6
+		}
+	}
+	l := list.New(items, delegate, listW, listH)
+	l.Title = "Select display environment"
+	l.Styles.Title = titleStyle
+	if lastIdx >= 0 && lastIdx < len(desktops) {
+		l.Select(lastIdx)
+	}
+	m.sessList = l
+}
+
+// runSessionAndContinue invokes dm.RunLoginSession and decides how to proceed.
+// On a clean session end (or built-in :command path) the program quits.
+// On a failed environment start the user is taken to phaseSessionError where a
+// short message is shown and Enter returns them to the session list (after a
+// silent re-authentication using the cached username/password).
+func (m *rootModel) runSessionAndContinue(auth dm.AuthHandle, d *dm.Desktop, label string) (tea.Model, tea.Cmd) {
+	_, err := dm.RunLoginSession(m.conf, m.h, auth, d)
+	m.auth = nil
+	if err != nil {
+		if label != "" {
+			m.sessionErr = "Failed to start " + label + ": " + err.Error()
+		} else {
+			m.sessionErr = "Failed to start session: " + err.Error()
+		}
+		m.phase = phaseSessionError
+		return m, tea.ClearScreen
+	}
+	return m, tea.Quit
+}
+
+// updateSessionError handles the modal error screen shown when the chosen
+// environment failed to start. Pressing Enter re-authenticates the user with
+// the cached credentials and returns to phaseSession; if re-auth fails (rare:
+// PAM policy change between attempts) the user is dropped back to phaseLogin
+// with an explanatory message and the password field cleared.
+func (m *rootModel) updateSessionError(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.termW, m.termH = msg.Width, msg.Height
+		return m, nil
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "enter":
+			auth, err := dm.Authenticate(m.conf, m.username, m.password)
+			if err != nil || auth == nil {
+				m.phase = phaseLogin
+				m.sessionErr = ""
+				if err != nil {
+					m.errMsg = err.Error()
+				} else {
+					m.errMsg = "authentication failed"
+				}
+				m.passIn.SetValue("")
+				m.password = ""
+				m.focus = 1
+				m.userIn.Blur()
+				setLoginCursorInactive(&m.userIn)
+				setLoginCursorActive(&m.passIn)
+				m.passIn.Focus()
+				return m, textinput.Blink
+			}
+			m.auth = auth
+			m.sessionErr = ""
+			m.phase = phaseSession
+			return m, nil
+		}
+	}
+	return m, nil
 }
 
 // renderLoginInput renders a textinput field.  When asciiCursor is true the
@@ -397,6 +473,9 @@ func (m *rootModel) View() string {
 		b.WriteString(renderLoginInput(m.passIn, m.asciiCursor) + "\n")
 	case phaseSession:
 		b.WriteString(m.sessList.View())
+	case phaseSessionError:
+		b.WriteString(errStyle.Render(m.sessionErr) + "\n\n")
+		b.WriteString(hintStyle.Render("Press Enter to return to session selection..."))
 	}
 	b.WriteString("\n\n")
 	b.WriteString(m.ver)

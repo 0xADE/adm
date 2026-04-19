@@ -6,7 +6,8 @@ type waylandSession struct {
 }
 
 // Starts no wayland carrier
-func (w *waylandSession) startCarrier() {
+func (w *waylandSession) startCarrier() error {
+	return nil
 }
 
 // Gets -1 as carrier Pid

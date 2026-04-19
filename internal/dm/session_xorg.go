@@ -1,6 +1,7 @@
 package dm
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,7 +16,9 @@ type xorgSession struct {
 }
 
 // Starts Xorg as carrier for Xorg Session.
-func (x *xorgSession) startCarrier() {
+// Returns an error so the caller can show a short message and return the user
+// to the session selection without terminating adm.
+func (x *xorgSession) startCarrier() error {
 	if !x.conf.DefaultXauthority {
 		x.auth.usr().setenv(envXauthority, x.auth.usr().getenv(envXdgRuntimeDir)+"/.adm-xauth")
 		os.Remove(x.auth.usr().getenv(envXauthority))
@@ -23,19 +26,19 @@ func (x *xorgSession) startCarrier() {
 
 	x.auth.usr().setenv(envDisplay, ":"+x.getFreeXDisplay())
 
-	// generate mcookie
 	cmd := cmdAsUser(x.auth.usr(), lookPath("mcookie", "/usr/bin/mcookie"))
 	mcookie, err := cmd.Output()
-	handleErr(err)
+	if err != nil {
+		return fmt.Errorf("mcookie failed: %w", err)
+	}
 	logPrint("Generated mcookie")
 
-	// generate xauth
 	cmd = cmdAsUser(x.auth.usr(), lookPath("xauth", "/usr/bin/xauth"), "add", x.auth.usr().getenv(envDisplay), ".", string(mcookie))
-	_, err = cmd.Output()
-	handleErr(err)
+	if _, err = cmd.Output(); err != nil {
+		return fmt.Errorf("xauth failed: %w", err)
+	}
 	logPrint("Generated xauthority")
 
-	// start X
 	logPrint("Starting X server (" + x.conf.XorgBin + ")")
 
 	xorgBin := lookPath(x.conf.XorgBin, "/usr/bin/"+x.conf.XorgBin)
@@ -62,37 +65,46 @@ func (x *xorgSession) startCarrier() {
 		x.xorg.Env = os.Environ()
 	}
 
-	x.xorg.Start()
+	if err := x.xorg.Start(); err != nil {
+		return fmt.Errorf("xorg start failed: %w", err)
+	}
 	if x.xorg.Process == nil {
-		handleStrErr("Xorg is not running")
+		return errors.New("Xorg is not running")
 	}
 	logPrint("Started Xorg")
 
 	if err := openXDisplay(x.auth.usr().getenv(envDisplay), x.auth.usr().getenv(envXauthority)); err != nil {
-		handleStrErr("Could not open X Display.")
+		return fmt.Errorf("could not open X display: %w", err)
 	}
+	return nil
 }
 
-// Gets Xorg Pid as int
+// Gets Xorg Pid as int. Returns -1 when the carrier never started.
 func (x *xorgSession) getCarrierPid() int {
-	if x.xorg == nil {
-		handleStrErr("Xorg is not running")
+	if x.xorg == nil || x.xorg.Process == nil {
+		return -1
 	}
 	return x.xorg.Process.Pid
 }
 
-// Finishes Xorg as carrier for Xorg Session
+// Finishes Xorg as carrier for Xorg Session.
+// Safe to call when the carrier failed to start.
 func (x *xorgSession) finishCarrier() error {
-	// Stop Xorg
-	x.xorg.Process.Signal(os.Interrupt)
-	err := x.xorg.Wait()
-	logPrint("Interrupted Xorg")
+	if x.xorg == nil {
+		os.Remove(x.auth.usr().getenv(envXauthority))
+		return nil
+	}
 
-	// Remove auth
+	var err error
+	if x.xorg.Process != nil {
+		x.xorg.Process.Signal(os.Interrupt)
+		err = x.xorg.Wait()
+		logPrint("Interrupted Xorg")
+	}
+
 	os.Remove(x.auth.usr().getenv(envXauthority))
 	logPrint("Cleaned up xauthority")
 
-	// Revert rootless TTY ownership
 	if x.allowRootlessX() {
 		if err := x.setTTYOwnership(x.conf, os.Getuid()); err != nil {
 			logPrint(err)

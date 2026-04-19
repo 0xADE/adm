@@ -93,8 +93,8 @@ func prepareLogFile(path, tty string, method enLogging) (*os.File, error) {
 			return nil, err
 		}
 		if fileExists(logFilePath) {
-			os.Remove(logFilePath + pathLogFileOldSuffix)
-			os.Rename(logFilePath, logFilePath+pathLogFileOldSuffix)
+			_ = os.Remove(logFilePath + pathLogFileOldSuffix)
+			_ = os.Rename(logFilePath, logFilePath+pathLogFileOldSuffix)
 		}
 	} else if method == Disabled {
 		logFilePath = pathLogFileNull
@@ -107,8 +107,8 @@ func prepareLogFile(path, tty string, method enLogging) (*os.File, error) {
 func backupFileIfNotFolder(path string) {
 	fileName := path[:strings.LastIndex(path, "/")]
 	if f, err := os.Stat(fileName); err == nil && f != nil && !f.IsDir() {
-		os.Remove(fileName + pathLogFileOldSuffix)
-		os.Rename(fileName, fileName+pathLogFileOldSuffix)
+		_ = os.Remove(fileName + pathLogFileOldSuffix)
+		_ = os.Rename(fileName, fileName+pathLogFileOldSuffix)
 	}
 }
 

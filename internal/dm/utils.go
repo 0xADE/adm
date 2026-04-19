@@ -51,7 +51,7 @@ func readPropertiesWithSupport(filePath string, method propertyFunc, fishSupport
 	if err != nil {
 		return errors.New("Could not open file " + filePath)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	requiresFishSupport := false
@@ -417,7 +417,7 @@ func getIpAddressFromIface(iface *net.Interface, ipType byte) string {
 // Gets value from /etc/os-release. If no name is defined, it assumes PRETTY_NAME or NAME, if PRETTY_NAME is not defined.
 func getOsReleaseValue(name string) string {
 	var values = make(map[string]string)
-	readProperties(pathOsReleaseFile, func(key, value string) {
+	_ = readProperties(pathOsReleaseFile, func(key, value string) {
 		if len(value) > 1 {
 			values[key] = value
 		}
@@ -517,7 +517,7 @@ func getConsole() *os.File {
 			if isConsole(c.Fd()) {
 				return c
 			}
-			c.Close()
+			_ = c.Close()
 		}
 	}
 	return nil
@@ -526,7 +526,7 @@ func getConsole() *os.File {
 // Performs chvt command using ioctl
 func chvt(tty int) bool {
 	if c := getConsole(); c != nil {
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 		if _, _, errNo := syscall.Syscall(syscall.SYS_IOCTL, uintptr(c.Fd()), uintptr(_VT_ACTIVATE), uintptr(tty)); errNo > 0 {
 			return false
 		}
@@ -544,7 +544,7 @@ func waitForReturnToExit(code int) {
 		remainingTimeout := cfgWaitExitTimeout
 		if remainingTimeout <= 0 {
 			fmt.Printf("\nPress Enter to continue...")
-			bufio.NewReader(os.Stdin).ReadString('\n')
+			_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 			os.Exit(code)
 			return
 		}
@@ -554,7 +554,7 @@ func waitForReturnToExit(code int) {
 		inputDone := make(chan struct{})
 
 		go func() {
-			bufio.NewReader(os.Stdin).ReadString('\n')
+			_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 			close(inputDone)
 		}()
 

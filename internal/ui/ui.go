@@ -218,10 +218,6 @@ func (m *rootModel) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.errMsg = err.Error()
 				return m, nil
 			}
-			if auth == nil {
-				m.errMsg = "authentication failed"
-				return m, nil
-			}
 			if cmd := auth.GetCommand(); cmd != "" {
 				_ = dm.ProcessCommand(cmd, m.conf, auth, false)
 				auth.CloseAuth()
@@ -382,14 +378,10 @@ func (m *rootModel) updateSessionError(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "enter":
 			auth, err := dm.Authenticate(m.conf, m.username, m.password)
-			if err != nil || auth == nil {
+			if err != nil {
 				m.phase = phaseLogin
 				m.sessionErr = ""
-				if err != nil {
-					m.errMsg = err.Error()
-				} else {
-					m.errMsg = "authentication failed"
-				}
+				m.errMsg = err.Error()
 				m.passIn.SetValue("")
 				m.password = ""
 				m.focus = 1

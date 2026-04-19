@@ -29,9 +29,9 @@ func TestMotdDynamicNotEnabled(t *testing.T) {
 
 	f, _ := os.Stat(getTestingPath("motd-dynamic.sh"))
 	originalMode := f.Mode()
-	defer os.Chmod(getTestingPath("motd-dynamic.sh"), originalMode)
+	defer func() { _ = os.Chmod(getTestingPath("motd-dynamic.sh"), originalMode) }()
 
-	os.Chmod(getTestingPath("motd-dynamic.sh"), 0755)
+	_ = os.Chmod(getTestingPath("motd-dynamic.sh"), 0755)
 	c.DynamicMotd = false
 	c.MotdPath = ""
 
@@ -49,10 +49,10 @@ func TestMotdDynamic(t *testing.T) {
 
 	f, _ := os.Stat(getTestingPath("motd-dynamic.sh"))
 	originalMode := f.Mode()
-	defer os.Chmod(getTestingPath("motd-dynamic.sh"), originalMode)
-	os.Chmod(getTestingPath("motd-dynamic.sh"), 0755)
+	defer func() { _ = os.Chmod(getTestingPath("motd-dynamic.sh"), originalMode) }()
+	_ = os.Chmod(getTestingPath("motd-dynamic.sh"), 0755)
 
-	os.Stat(getTestingPath("motd-dynamic.sh"))
+	_, _ = os.Stat(getTestingPath("motd-dynamic.sh"))
 
 	output := readOutput(func() {
 		printMotd(c)

@@ -1,8 +1,6 @@
 package dm
 
 import (
-	"bufio"
-	"fmt"
 	"os"
 	"strings"
 )
@@ -69,42 +67,6 @@ func EffectiveUsername(conf *config, username string) string {
 		return last
 	}
 	return ""
-}
-
-// Performs input selection user. If saving last user is enabled (PerTty/Global), user is read from defined path and used as predefined value.
-func (a *authBase) selectUser(c *config) (string, error) {
-	if c.DefaultUser != "" {
-		if !c.HideEnterLogin {
-			hostname, _ := os.Hostname()
-			fmt.Printf("%s%s login: %s\n", c.GetIndentString(), hostname, c.DefaultUser)
-		}
-		return c.DefaultUser, nil
-	}
-
-	lastUser := a.getLastSelectedUser(c)
-	if !c.HideEnterLogin {
-		hostname, _ := os.Hostname()
-		lastUserDisplay := ""
-		if lastUser != "" {
-			lastUserDisplay = " [" + lastUser + "]"
-		}
-		fmt.Printf("%s%s login%s: ", c.GetIndentString(), hostname, lastUserDisplay)
-	}
-	input, err := bufio.NewReader(os.Stdin).ReadString('\n')
-	if err != nil {
-		return "", err
-	}
-	username := input[:len(input)-1]
-
-	if c.AllowCommands && ShouldProcessCommand(username, c) {
-		a.command = FormatCommand(username)
-		return "", nil
-	}
-
-	if lastUser != "" && username == "" {
-		username = lastUser
-	}
-	return username, nil
 }
 
 // Gets last selected user with respect to configuration.

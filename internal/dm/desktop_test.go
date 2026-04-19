@@ -219,7 +219,7 @@ func TestSetUserLastSession(t *testing.T) {
 		t.Error("TestSetUserLastSession: last session is not being saved")
 	}
 
-	os.RemoveAll(usr.homedir)
+	_ = os.RemoveAll(usr.homedir)
 }
 
 func TestListAllDesktops(t *testing.T) {

@@ -221,7 +221,7 @@ func getDesktop(path string, env enEnvironment) *desktop {
 		d.env = defaultEnvValue
 	}
 
-	readProperties(path, func(key string, value string) {
+	_ = readProperties(path, func(key string, value string) {
 		switch key {
 		case desktopName:
 			d.name = value

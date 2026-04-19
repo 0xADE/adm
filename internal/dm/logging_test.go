@@ -44,28 +44,28 @@ func TestParseLogging(t *testing.T) {
 func TestInitSessionErrorLogger(t *testing.T) {
 	f, _ := os.CreateTemp(os.TempDir(), "emptty-session-log-file")
 	fileName := f.Name()
-	f.Close()
+	_ = f.Close()
 
 	conf := &config{SessionErrLogFile: f.Name(), SessionErrLog: Rotate}
 	sessFile, sessErr := initSessionErrorLogger(conf)
-	sessFile.Close()
-	os.Remove(fileName + pathLogFileOldSuffix)
-	os.Remove(fileName)
+	_ = sessFile.Close()
+	_ = os.Remove(fileName + pathLogFileOldSuffix)
+	_ = os.Remove(fileName)
 	if sessErr != nil {
 		t.Error("TestInitSessionErrorLogger: unexpected error", sessErr)
 	}
 
 	conf.SessionErrLog = Appending
 	sessFile, sessErr = initSessionErrorLogger(conf)
-	sessFile.Close()
+	_ = sessFile.Close()
 	if sessErr != nil {
 		t.Error("TestInitSessionErrorLogger: unexpected error", sessErr)
 	}
 
 	conf.SessionErrLog = Disabled
 	sessFile, sessErr = initSessionErrorLogger(conf)
-	sessFile.Close()
-	os.Remove(fileName)
+	_ = sessFile.Close()
+	_ = os.Remove(fileName)
 	if sessErr != nil {
 		t.Error("TestInitSessionErrorLogger: unexpected error", sessErr)
 	}
@@ -74,19 +74,19 @@ func TestInitSessionErrorLogger(t *testing.T) {
 func TestInitLogger(t *testing.T) {
 	f, _ := os.CreateTemp(os.TempDir(), "emptty-log-file.[TTY_NUMBER]")
 	fileName := f.Name()
-	f.Close()
+	_ = f.Close()
 
 	conf := &config{LoggingFile: f.Name(), Logging: Rotate}
 	initLogger(conf)
-	os.Remove(fileName + pathLogFileOldSuffix)
-	os.Remove(fileName)
+	_ = os.Remove(fileName + pathLogFileOldSuffix)
+	_ = os.Remove(fileName)
 
 	conf.Logging = Appending
 	initLogger(conf)
 
 	conf.Logging = Disabled
 	initLogger(conf)
-	os.Remove(fileName)
+	_ = os.Remove(fileName)
 }
 
 func TestLogPrint(t *testing.T) {
@@ -150,10 +150,10 @@ func TestHandleStrErr(t *testing.T) {
 func TestBackupFileIfNotFolder(t *testing.T) {
 	f, _ := os.CreateTemp(os.TempDir(), "emptty-data")
 	fileName := f.Name()
-	f.Close()
+	_ = f.Close()
 
 	backupFileIfNotFolder(fileName + "/file")
 	backupFileIfNotFolder(fileName + "/file")
 
-	os.Remove(fileName)
+	_ = os.Remove(fileName)
 }

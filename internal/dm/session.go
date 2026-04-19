@@ -79,7 +79,7 @@ func (s *commonSession) start() error {
 
 	if err := s.startCarrier(); err != nil {
 		logPrint(err)
-		s.finishCarrier()
+		_ = s.finishCarrier()
 		return errors.New(s.d.env.string() + " carrier failed to start: " + err.Error())
 	}
 
@@ -96,7 +96,7 @@ func (s *commonSession) start() error {
 
 	if sessionErrLog, sessionErrLogErr := initSessionErrorLogger(s.conf); sessionErrLogErr == nil {
 		session.Stderr = sessionErrLog
-		defer sessionErrLog.Close()
+		defer func() { _ = sessionErrLog.Close() }()
 	} else {
 		logPrint(sessionErrLogErr)
 	}
@@ -114,7 +114,7 @@ func (s *commonSession) start() error {
 
 	if err := session.Start(); err != nil {
 		logPrint(strExec + " failed to start: " + err.Error())
-		s.finishCarrier()
+		_ = s.finishCarrier()
 		return errors.New(s.d.env.string() + " session failed to start: " + err.Error())
 	}
 
@@ -166,7 +166,9 @@ func (s *commonSession) mkXdgRuntimeDir() {
 	handleErr(os.Mkdir(s.auth.usr().getenv(envXdgRuntimeDir), 0700))
 
 	// Set owner of XDG folder
-	os.Chown(s.auth.usr().getenv(envXdgRuntimeDir), s.auth.usr().uid, s.auth.usr().gid)
+	if err := os.Chown(s.auth.usr().getenv(envXdgRuntimeDir), s.auth.usr().uid, s.auth.usr().gid); err != nil {
+		logPrint(err)
+	}
 }
 
 // Prepares environment and env variables for authorized user.
@@ -220,7 +222,9 @@ func (s *commonSession) defineEnvironment() {
 		}
 	}
 
-	os.Chdir(s.auth.usr().getenv(envPwd))
+	if err := os.Chdir(s.auth.usr().getenv(envPwd)); err != nil {
+		logPrint(err)
+	}
 }
 
 // Prepares command for starting GUI.
@@ -282,7 +286,9 @@ func (s *commonSession) runExitScript() {
 
 		select {
 		case <-time.After(time.Duration(timeout) * time.Second):
-			syscall.Kill(cmd.Process.Pid, syscall.SIGKILL)
+			if err := syscall.Kill(cmd.Process.Pid, syscall.SIGKILL); err != nil {
+				logPrint(err)
+			}
 		case err := <-c:
 			if err != nil {
 				logPrint(err)

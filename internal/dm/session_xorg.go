@@ -21,7 +21,7 @@ type xorgSession struct {
 func (x *xorgSession) startCarrier() error {
 	if !x.conf.DefaultXauthority {
 		x.auth.usr().setenv(envXauthority, x.auth.usr().getenv(envXdgRuntimeDir)+"/.adm-xauth")
-		os.Remove(x.auth.usr().getenv(envXauthority))
+		_ = os.Remove(x.auth.usr().getenv(envXauthority))
 	}
 
 	x.auth.usr().setenv(envDisplay, ":"+x.getFreeXDisplay())
@@ -60,8 +60,12 @@ func (x *xorgSession) startCarrier() error {
 		}
 	} else {
 		x.xorg = exec.Command(xorgBin, xorgArgs...)
-		os.Setenv(envDisplay, x.auth.usr().getenv(envDisplay))
-		os.Setenv(envXauthority, x.auth.usr().getenv(envXauthority))
+		if err := os.Setenv(envDisplay, x.auth.usr().getenv(envDisplay)); err != nil {
+			logPrint(err)
+		}
+		if err := os.Setenv(envXauthority, x.auth.usr().getenv(envXauthority)); err != nil {
+			logPrint(err)
+		}
 		x.xorg.Env = os.Environ()
 	}
 
@@ -69,7 +73,7 @@ func (x *xorgSession) startCarrier() error {
 		return fmt.Errorf("xorg start failed: %w", err)
 	}
 	if x.xorg.Process == nil {
-		return errors.New("Xorg is not running")
+		return errors.New("xorg is not running")
 	}
 	logPrint("Started Xorg")
 
@@ -91,18 +95,20 @@ func (x *xorgSession) getCarrierPid() int {
 // Safe to call when the carrier failed to start.
 func (x *xorgSession) finishCarrier() error {
 	if x.xorg == nil {
-		os.Remove(x.auth.usr().getenv(envXauthority))
+		_ = os.Remove(x.auth.usr().getenv(envXauthority))
 		return nil
 	}
 
 	var err error
 	if x.xorg.Process != nil {
-		x.xorg.Process.Signal(os.Interrupt)
+		if sigErr := x.xorg.Process.Signal(os.Interrupt); sigErr != nil {
+			logPrint(sigErr)
+		}
 		err = x.xorg.Wait()
 		logPrint("Interrupted Xorg")
 	}
 
-	os.Remove(x.auth.usr().getenv(envXauthority))
+	_ = os.Remove(x.auth.usr().getenv(envXauthority))
 	logPrint("Cleaned up xauthority")
 
 	if x.allowRootlessX() {

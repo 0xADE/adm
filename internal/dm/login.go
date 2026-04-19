@@ -65,7 +65,7 @@ func RunLoginSession(conf *config, h *SessionHandle, auth authHandle, d *desktop
 	}()
 
 	if rerr := handleLoginRetries(conf, &DefaultLoginRetryPathProvider{}); rerr != nil {
-		return "", errors.New("Exceeded maximum number of allowed login retries in short period.")
+		return "", errors.New("exceeded maximum number of allowed login retries in short period")
 	}
 
 	if h.interrupted {

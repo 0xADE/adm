@@ -30,9 +30,8 @@ func openXDisplay(dispName, xauthorityPath string) error {
 			err = performHandshake(conn, authName, authData)
 			if err == nil {
 				return nil
-			} else {
-				conn.Close()
 			}
+			_ = conn.Close()
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -151,7 +150,7 @@ func performHandshake(conn net.Conn, authName string, authData []byte) error {
 	}
 
 	if reply[0] != 1 {
-		return errors.New("X server authentication failed")
+		return errors.New("x server authentication failed")
 	}
 
 	return nil

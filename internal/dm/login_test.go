@@ -17,7 +17,7 @@ func (r *MockedRetryPathProvider) getLoginRetryPath(conf *config) string {
 	r.once.Do(func() {
 		f, _ := os.CreateTemp("", "emptty-login-retry-"+conf.strTTY())
 		r.fileName = f.Name()
-		f.Close()
+		_ = f.Close()
 	})
 	return r.fileName
 }
@@ -33,7 +33,7 @@ func TestHandleLoginRetriesInfinite(t *testing.T) {
 		}
 	}
 
-	os.Remove(r.getLoginRetryPath(c))
+	_ = os.Remove(r.getLoginRetryPath(c))
 }
 
 func TestHandleLoginRetriesNoRetry(t *testing.T) {
@@ -50,7 +50,7 @@ func TestHandleLoginRetriesNoRetry(t *testing.T) {
 		}
 	}
 
-	os.Remove(r.getLoginRetryPath(c))
+	_ = os.Remove(r.getLoginRetryPath(c))
 }
 
 func TestHandleLoginRetries2Retries(t *testing.T) {
@@ -67,7 +67,7 @@ func TestHandleLoginRetries2Retries(t *testing.T) {
 		}
 	}
 
-	os.Remove(r.getLoginRetryPath(c))
+	_ = os.Remove(r.getLoginRetryPath(c))
 }
 
 func TestGetUptime(t *testing.T) {
@@ -99,5 +99,5 @@ func TestReadWriteRetryFile(t *testing.T) {
 		}
 	}
 
-	os.RemoveAll(retryPath)
+	_ = os.RemoveAll(retryPath)
 }

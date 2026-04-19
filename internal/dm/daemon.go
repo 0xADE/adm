@@ -65,7 +65,7 @@ func stopDaemon(conf *config, fTTY *os.File) {
 	clearScreen(fTTY)
 
 	if fTTY != nil {
-		fTTY.Close()
+		_ = fTTY.Close()
 	}
 }
 
@@ -74,7 +74,7 @@ func clearScreen(w io.Writer) {
 	if w == nil {
 		fmt.Print(strCleanScreen)
 	} else {
-		w.Write([]byte(strCleanScreen))
+		_, _ = w.Write([]byte(strCleanScreen))
 	}
 }
 

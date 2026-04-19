@@ -30,13 +30,13 @@ func readOutput(method func()) string {
 
 	method()
 
-	w.Close()
+	_ = w.Close()
 	output, _ := io.ReadAll(r)
 	os.Stdout = original
 	log.SetOutput(original)
 
 	if testing.Verbose() {
-		os.Stdout.Write(output)
+		_, _ = os.Stdout.Write(output)
 	}
 
 	return string(output)
@@ -197,7 +197,7 @@ func TestSetKeyboardLeds(t *testing.T) {
 	setKeyboardLeds(f, true, true, true)
 	setKeyboardLeds(f, false, false, false)
 
-	f.Close()
+	_ = f.Close()
 	err = os.Remove(f.Name())
 	if err != nil {
 		t.Error("TestSetKeyboardLeds: could not remove test file")

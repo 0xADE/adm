@@ -51,7 +51,7 @@ func printDynamicMotd(conf *config) bool {
 	if conf.DynamicMotd && fileIsExecutable(conf.DynamicMotdPath) {
 		cmd := exec.Command(conf.DynamicMotdPath)
 		stdout, _ := cmd.StdoutPipe()
-		cmd.Start()
+		_ = cmd.Start()
 
 		buf := bufio.NewReader(stdout)
 		for {
@@ -62,7 +62,7 @@ func printDynamicMotd(conf *config) bool {
 				break
 			}
 		}
-		cmd.Wait()
+		_ = cmd.Wait()
 
 		revertColors(conf)
 		return true

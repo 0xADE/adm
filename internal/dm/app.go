@@ -52,14 +52,16 @@ func InitSessionHandle() *SessionHandle {
 func handleInterrupt(c chan os.Signal, h *SessionHandle) {
 	<-c
 	logPrint("Caught interrupt signal")
-	setTerminalEcho(os.Stdout.Fd(), true)
+	if err := setTerminalEcho(os.Stdout.Fd(), true); err != nil {
+		logPrint(err)
+	}
 	h.interrupted = true
 	if h.session != nil && h.session.cmd != nil {
 		h.session.interrupted = true
 		if err := h.session.cmd.Process.Signal(os.Interrupt); err != nil {
 			logPrint("Application not responding to signal")
 		} else {
-			h.session.cmd.Wait()
+			_ = h.session.cmd.Wait()
 		}
 	}
 	if h.auth != nil {

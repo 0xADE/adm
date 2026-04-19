@@ -30,7 +30,7 @@ func setKeyboardLeds(tty *os.File, scrolllock, numlock, capslock bool) {
 	var flags uint64
 
 	// Read current keyboards flags
-	syscall.Syscall(syscall.SYS_IOCTL, uintptr(tty.Fd()), uintptr(_KDGKBLED), uintptr(unsafe.Pointer(&flags)))
+	_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, uintptr(tty.Fd()), uintptr(_KDGKBLED), uintptr(unsafe.Pointer(&flags)))
 
 	if scrolllock {
 		flags |= _K_SCROLLLOCK
@@ -47,8 +47,8 @@ func setKeyboardLeds(tty *os.File, scrolllock, numlock, capslock bool) {
 		flags |= 0x30
 
 		// Flags are used also for leds to keep flag valid to led
-		syscall.Syscall(syscall.SYS_IOCTL, uintptr(tty.Fd()), uintptr(_KDSKBLED), uintptr(flags))
-		syscall.Syscall(syscall.SYS_IOCTL, uintptr(tty.Fd()), uintptr(_KDSETLED), uintptr(flags))
+		_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, uintptr(tty.Fd()), uintptr(_KDSKBLED), uintptr(flags))
+		_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, uintptr(tty.Fd()), uintptr(_KDSETLED), uintptr(flags))
 	}
 }
 

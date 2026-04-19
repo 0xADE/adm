@@ -1,13 +1,16 @@
 package ui
 
 import (
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/rivo/uniseg"
 
 	"github.com/0xADE/adm/internal/dm"
 )
@@ -75,6 +78,11 @@ type rootModel struct {
 
 	termW int
 	termH int
+
+	// asciiCursor is true when the terminal does not support 256 colours or
+	// better.  In that mode the standard colour-block cursor is invisible on
+	// blank fields, so we render an explicit '_' glyph instead.
+	asciiCursor bool
 }
 
 func setLoginCursorActive(ti *textinput.Model) {
@@ -89,6 +97,8 @@ func setLoginCursorInactive(ti *textinput.Model) {
 
 // NewRoot creates the Bubble Tea model for one login + session cycle.
 func NewRoot(conf *dm.Config, motd, version string, h *dm.SessionHandle) tea.Model {
+	prof := colorprofile.Detect(os.Stdout, os.Environ())
+	asciiCursor := prof < colorprofile.ANSI256
 	tu := textinput.New()
 	tu.Prompt = "user > "
 	tu.Placeholder = ""
@@ -115,13 +125,14 @@ func NewRoot(conf *dm.Config, motd, version string, h *dm.SessionHandle) tea.Mod
 	}
 
 	return &rootModel{
-		conf:   conf,
-		motd:   motd,
-		ver:    version,
-		h:      h,
-		userIn: tu,
-		passIn: tp,
-		phase:  phaseLogin,
+		conf:        conf,
+		motd:        motd,
+		ver:         version,
+		h:           h,
+		userIn:      tu,
+		passIn:      tp,
+		phase:       phaseLogin,
+		asciiCursor: asciiCursor,
 	}
 }
 
@@ -321,6 +332,56 @@ func (m *rootModel) updateSession(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// renderLoginInput renders a textinput field.  When asciiCursor is true the
+// terminal is assumed to lack 256-colour support, so on the plain-colour
+// palette a coloured block cursor is invisible over a blank character.  In
+// that case, when the cursor sits at the end of the value (the most common
+// situation on an empty field or after typing), we manually append a '_'
+// glyph that remains visible even without colour.  The glyph is drawn with
+// reverse video so it is also highlighted on terminals that do support that
+// attribute.  Blinking is preserved by replacing the glyph with a space when
+// ti.Cursor.Blink is true (cursor currently in its hidden phase).
+//
+// For all other cursor positions, and for colour terminals, the standard
+// ti.View() output is used unchanged.
+func renderLoginInput(ti textinput.Model, asciiCursor bool) string {
+	if !asciiCursor || !ti.Focused() {
+		return ti.View()
+	}
+
+	val := ti.Value()
+	pos := ti.Position()
+	if pos < len([]rune(val)) {
+		// Cursor is inside existing text: standard rendering is fine because
+		// the character under the cursor is already a visible glyph.
+		return ti.View()
+	}
+
+	// Cursor is at end of value (including empty field).  Build the visible
+	// portion of the value respecting EchoPassword and Width.
+	var displayVal string
+	switch ti.EchoMode {
+	case textinput.EchoPassword:
+		displayVal = strings.Repeat(string(ti.EchoCharacter), uniseg.StringWidth(val))
+	default:
+		displayVal = val
+	}
+
+	// Truncate to visible width when Width is set (mirror textinput viewport).
+	if ti.Width > 0 {
+		displayVal = ansi.Truncate(displayVal, ti.Width, "")
+	}
+
+	var cursorGlyph string
+	if ti.Cursor.Blink {
+		cursorGlyph = " "
+	} else {
+		cursorGlyph = lipgloss.NewStyle().Reverse(true).Render("_")
+	}
+
+	return ti.PromptStyle.Render(ti.Prompt) + ti.TextStyle.Inline(true).Render(displayVal) + cursorGlyph
+}
+
 func (m *rootModel) View() string {
 	var b strings.Builder
 	if m.motd != "" {
@@ -332,8 +393,8 @@ func (m *rootModel) View() string {
 	switch m.phase {
 	case phaseLogin:
 		b.WriteString(hintStyle.Render("Login (Tab: fields, Enter: next field / submit)") + "\n\n")
-		b.WriteString(m.userIn.View() + "\n")
-		b.WriteString(m.passIn.View() + "\n")
+		b.WriteString(renderLoginInput(m.userIn, m.asciiCursor) + "\n")
+		b.WriteString(renderLoginInput(m.passIn, m.asciiCursor) + "\n")
 	case phaseSession:
 		b.WriteString(m.sessList.View())
 	}

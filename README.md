@@ -1,5 +1,7 @@
 # adm
 
+_Status: under active development, not well tested._
+
 `adm` is a minimal **display manager for Linux TTY** with a **Bubble Tea**
 ([Charm](https://github.com/charmbracelet)) user interface. It starts
 **Wayland** or **X11** sessions from standard `.desktop` entries.
